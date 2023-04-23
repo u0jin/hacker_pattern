@@ -34,7 +34,7 @@ def crawl_add():
             if not address_forder.empty and not type_forder.empty:
                 hacker_address = address_forder.iloc[0, 2].strip()
                 hacker_addresses.append(hacker_address)
-                
+
                 report_type = type_forder.iloc[0, 2]
                 report_types.append(report_type)
 
@@ -86,15 +86,16 @@ def main():
 
     df = pd.DataFrame(transactions)
 
-       # Group the DataFrame by Report_Type
+    # Group the DataFrame by Report_Type
     grouped_df = df.groupby('Report_Type')
 
     # Save each group to a separate CSV file
     for report_type, group in grouped_df:
-        output_file = f"{report_type}_Transaction_wallet_name.csv"
-        group.to_csv(output_file, index=False)
+        output_file = f"{report_type.replace(' ', '_')}_Transaction_wallet_name.csv"
+        columns = ['Sending_Wallet', 'Receiving_Wallet', 'Transaction_Amount', 'Coin_Type', 'Coin_Type', 'Date_Sent', 'Time_Sent', 'Sending_Wallet_Source', 'Receiving_Wallet_Source']
+        group[columns].to_csv(output_file, index=False, header=False)
         print(f"Data saved to {output_file}")
+
 
 if __name__ == '__main__':
     main()
-
