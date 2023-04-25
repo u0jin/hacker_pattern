@@ -15,12 +15,11 @@ delay = 10
 max_delay = 60
 
 def crawl_add():
-    hacker_addresses = []
-    report_types = []
+    hackers_data = []
 
     if not os.path.exists(REPORTED_HACKER_ADDRESSES_FOLDER) or not os.path.exists(REPORTED_HACKER_TYPE_FOLDER):
         print("Required directories not found.")
-        return hacker_addresses, report_types
+        return hackers_data
 
     for file_name in os.listdir(REPORTED_HACKER_ADDRESSES_FOLDER):
         address_file_path = os.path.join(REPORTED_HACKER_ADDRESSES_FOLDER, file_name)
@@ -32,70 +31,77 @@ def crawl_add():
             type_forder = pd.read_csv(type_file_path)
 
             if not address_forder.empty and not type_forder.empty:
-                hacker_address = address_forder.iloc[0, 2].strip()
-                hacker_addresses.append(hacker_address)
-
+                hacker_address = re.sub(r'\s*View address on blockchain.info.*$', '', address_forder.iloc[0, 2].strip())
                 report_type = type_forder.iloc[0, 2]
-                report_types.append(report_type)
+                
+                hackers_data.append({'hacker_address': hacker_address, 'report_type': report_type})
 
-    return hacker_addresses, report_types
+    return hackers_data
 
-def get_transactions(hacker_addresses):
+
+def get_transactions(hacker_address):
     transactions = []
 
-    for address in hacker_addresses:
-        response = requests.get(f'{BLOCKCHAIN_API_BASE}/rawaddr/{address}')
+    response = requests.get(f'{BLOCKCHAIN_API_BASE}/rawaddr/{hacker_address}')
 
-        if response.status_code == 200:
-            data = response.json()
-            if 'txs' in data:
-                for tx in data['txs']:
-                    tx_time = datetime.fromtimestamp(tx['time']).strftime('%Y-%m-%d %H:%M:%S')
+    if response.status_code == 200:
+        data = response.json()
 
-                    for input in tx['inputs']:
-                        sending_wallet = input['prev_out']['addr']
-                        amount = input['prev_out']['value'] / 100000000
+        if 'txs' in data:
+            for tx in data['txs']:
+                tx_time = datetime.fromtimestamp(tx['time']).strftime('%Y-%m-%d %H:%M:%S')
 
-                        for output in tx['out']:
-                            receiving_wallet = output['addr']
-                            transaction = {
-                                'Hacker_Address': address,
-                                'Sending_Wallet': sending_wallet,
-                                'Receiving_Wallet': receiving_wallet,
-                                'Transaction_Amount': amount,
-                                'Coin_Type': 'BTC',  # Assuming Bitcoin for now
-                                'Date_Sent': tx_time.split(' ')[0],
-                                'Time_Sent': tx_time.split(' ')[1],
-                                'Sending_Wallet_Source': 'Unknown',  # Assuming unknown sources for now
-                                'Receiving_Wallet_Source': 'Unknown',  # Assuming unknown sources for now
-                            }
-                            transactions.append(transaction)
-        else:
-            print(f"Error fetching transactions for address {address}: {response.status_code}")
+                for input in tx['inputs']:
+                    sending_wallet = input['prev_out']['addr']
+                    amount = input['prev_out']['value'] / 100000000
 
-        time.sleep(delay + random.uniform(0, 3))  # Add some randomness to the delay between requests.
+                    for output in tx['out']:
+                        receiving_wallet = output['addr']
+                        transaction = {
+                            'Hacker_Address': hacker_address,
+                            'Sending_Wallet': sending_wallet,
+                            'Receiving_Wallet': receiving_wallet,
+                            'Transaction_Amount': amount,
+                            'Coin_Type': 'BTC',
+                            'Date_Sent': tx_time.split(' ')[0],
+                            'Time_Sent': tx_time.split(' ')[1],
+                            'Sending_Wallet_Source': 'Unknown',
+                            'Receiving_Wallet_Source': 'Unknown',
+                        }
+                        transactions.append(transaction)
+
+    elif response.status_code == 404:
+        print(f"Skipping transactions for address {hacker_address}: {response.status_code} - Address not found or no transactions associated with it.")
+    else:
+        print(f"Error fetching transactions for address {hacker_address}: {response.status_code}")
+
+    time.sleep(delay + random.uniform(0, 3))
 
     return transactions
 
 def main():
-    hacker_addresses, report_types = crawl_add()
-    transactions = get_transactions(hacker_addresses)
+    hackers_data = crawl_add()
+    for index, hacker_data in enumerate(hackers_data):
+        transactions = get_transactions([hacker_data['hacker_address']])
+        print(transactions)
 
-    for i, transaction in enumerate(transactions):
-        transaction['Report_Type'] = report_types[hacker_addresses.index(transaction['Hacker_Address'])]
+        for i, transaction in enumerate(transactions):
+            transaction['Report_Type'] = hacker_data['report_type']
 
-    df = pd.DataFrame(transactions)
+        df = pd.DataFrame(transactions)
 
-    # Group the DataFrame by Report_Type
-    grouped_df = df.groupby('Report_Type')
-
-    # Save each group to a separate CSV file
-    for report_type, group in grouped_df:
-        output_file = f"{report_type.replace(' ', '_')}_Transaction_wallet_name.csv"
+        output_file = f"{hacker_data['report_type'].replace(' ', '_')}_Transaction_wallet_name_{index + 1}.csv"
         columns = ['Sending_Wallet', 'Receiving_Wallet', 'Transaction_Amount', 'Coin_Type', 'Coin_Type', 'Date_Sent', 'Time_Sent', 'Sending_Wallet_Source', 'Receiving_Wallet_Source']
-        group[columns].to_csv(output_file, index=False, header=False)
-        print(f"Data saved to {output_file}")
 
+        if not df.empty:
+            df[columns].to_csv(output_file, index=False, header=False)
+            print(f"Data saved to {output_file}")
+        else:
+            print("No transactions found.")
+            with open(output_file, 'w') as file:
+                file.write(f"Hacker_Address: {hacker_data['hacker_address']}\n")
+                file.write(f"Report_Type: {hacker_data['report_type']}\n")
+            print(f"Data saved to {output_file}")
 
 if __name__ == '__main__':
     main()
