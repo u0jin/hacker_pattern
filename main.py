@@ -43,9 +43,11 @@ def get_transactions(hacker_address):
     transactions = []
 
     response = requests.get(f'{BLOCKCHAIN_API_BASE}/rawaddr/{hacker_address}')
+    print("0")
 
     if response.status_code == 200:
         data = response.json()
+        print("1")
 
         if 'txs' in data:
             for tx in data['txs']:
