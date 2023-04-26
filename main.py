@@ -9,8 +9,8 @@ from datetime import datetime
 
 BLOCKCHAIN_API_BASE = 'https://blockchain.info'
 
-REPORTED_HACKER_ADDRESSES_FOLDER = '/Users/yujin/Desktop/Blockchain/hacker_DB/DBdata'
-REPORTED_HACKER_TYPE_FOLDER = '/Users/yujin/Desktop/Blockchain/hacker_DB/Reportdata'
+REPORTED_HACKER_ADDRESSES_FOLDER = '/Users/yujin/Desktop/Blockchain/TestDB/DBdata'
+REPORTED_HACKER_TYPE_FOLDER = '/Users/yujin/Desktop/Blockchain/TestDB/Reportdata'
 
 def crawl_add():
     hackers_data = []
@@ -36,41 +36,65 @@ def crawl_add():
 
     return hackers_data
 
+def check_repeated_address(transactions, threshold=2):
+    address_counts = {}
+    for transaction in transactions:
+        receiving_wallet = transaction['receiving_wallet']
+        if receiving_wallet in address_counts:
+            address_counts[receiving_wallet] += 1
+        else:
+            address_counts[receiving_wallet] = 1
+
+    for address, count in address_counts.items():
+        if count > threshold:
+            return address
+
+    return None
+
+
 def get_transactions(hacker_address, node):
     hacker_transactions = []
     delay = 30
     max_delay = 60
+    repeated_addresses_filename = 'repeated_addresses.txt'
+    hacker_addresses_queue = [hacker_address]
 
-    while True:
-        response = requests.get(f'{node}/rawaddr/{hacker_address}')
-        
+    while hacker_addresses_queue:
+        current_hacker_address = hacker_addresses_queue.pop(0)
+        response = requests.get(f'{node}/rawaddr/{current_hacker_address}')
+        print(current_hacker_address)
+
         if response.status_code == 200:
             data = response.json()
-            last_output_value = 0
-            last_output_addr = None
-            
+            balance = data.get('final_balance', 0)
+
+            if balance == 0 and not hacker_transactions:
+                break
+
             if 'txs' in data:
                 for tx in data['txs']:
                     for output in tx['out']:
                         if 'addr' in output:
                             transaction_data = {
-                                'sending_wallet': hacker_address,
+                                'sending_wallet': current_hacker_address,
                                 'receiving_wallet': output['addr'],
-                                'transaction_amount': output['value'] / 1e8,  # Convert to BTC
-                                'coin_type': 'BTC',  # Assuming Bitcoin for this script
+                                'transaction_amount': output['value'] / 1e8,
+                                'coin_type': 'BTC',
                                 'date_sent': datetime.fromtimestamp(tx['time']).strftime('%Y-%m-%d'),
                                 'time_sent': datetime.fromtimestamp(tx['time']).strftime('%H:%M:%S'),
                                 'sending_wallet_source': 'Hacker DB',
                                 'receiving_wallet_source': 'Blockchain.info'
                             }
                             hacker_transactions.append(transaction_data)
-                            last_output_value = output['value']
-                            last_output_addr = output['addr']
-                            
-            if last_output_value == 0:
-                break
-            else:
-                hacker_address = last_output_addr
+
+                # Check for repeated addresses
+                repeated_address = check_repeated_address(hacker_transactions)
+                if repeated_address:
+                    with open(repeated_addresses_filename, 'a') as f:
+                        f.write(f"{repeated_address}\n")
+
+                    # Add the repeated address to the hacker addresses queue
+                    hacker_addresses_queue.append(repeated_address)
         else:
             if response.status_code == 429:
                 delay = min(delay * 2, max_delay)
@@ -79,6 +103,8 @@ def get_transactions(hacker_address, node):
         time.sleep(delay + random.uniform(0, 3))
 
     return hacker_transactions
+
+
 
 def main():
     hackers_data = crawl_add()
