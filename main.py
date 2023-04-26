@@ -9,9 +9,8 @@ from datetime import datetime
 
 BLOCKCHAIN_API_BASE = 'https://blockchain.info'
 
-REPORTED_HACKER_ADDRESSES_FOLDER = '/Users/yujin/Desktop/Blockchain/TestDB/DBdata'
-REPORTED_HACKER_TYPE_FOLDER = '/Users/yujin/Desktop/Blockchain/TestDB/Reportdata'
-
+REPORTED_HACKER_ADDRESSES_FOLDER = '/home/covert/Desktop/blockchain/Test_DB/DBdata'
+REPORTED_HACKER_TYPE_FOLDER = '/home/covert/Desktop/blockchain/Test_DB/Reportdata'
 def crawl_add():
     hackers_data = []
 
@@ -51,6 +50,11 @@ def check_repeated_address(transactions, threshold=2):
 
     return None
 
+def get_next_hacker_address(transactions):
+    if transactions:
+        last_transaction = transactions[-1]
+        return last_transaction['receiving_wallet']
+    return None
 
 def get_transactions(hacker_address, node):
     hacker_transactions = []
@@ -92,9 +96,10 @@ def get_transactions(hacker_address, node):
                 if repeated_address:
                     with open(repeated_addresses_filename, 'a') as f:
                         f.write(f"{repeated_address}\n")
-
-                    # Add the repeated address to the hacker addresses queue
                     hacker_addresses_queue.append(repeated_address)
+                    next_hacker_address = get_next_hacker_address(hacker_transactions)
+                    if next_hacker_address:
+                        hacker_addresses_queue.append(next_hacker_address)
         else:
             if response.status_code == 429:
                 delay = min(delay * 2, max_delay)
