@@ -5,10 +5,11 @@ import pandas as pd
 import os
 import time
 import random
+from datetime import datetime
 
 BLOCKCHAIN_API_BASE = 'https://blockchain.info'
 
-REPORTED_HACKER_ADDRESSES_FOLDER = '/home/covert/Desktop/blockchain/Blockchain-Trace/hacker_DB/DBdata'  # Update the path to your folder
+REPORTED_HACKER_ADDRESSES_FOLDER = '/Users/yujin/Desktop/Blockchain/hacker_DB/DBdata'  # Update the path to your folder
 
 def crawl_add():
     hackerList = []
@@ -30,7 +31,7 @@ def crawl_add():
     return hackerList
 
 def get_transactions(hacker_addresses, node):
-    hacker_transactions = {}
+    hacker_transactions = []
     delay = 30
     max_delay = 60
 
@@ -40,7 +41,20 @@ def get_transactions(hacker_addresses, node):
         if response.status_code == 200:
             data = response.json()
             if 'txs' in data:
-                hacker_transactions[address] = [tx['hash'] for tx in data['txs']]
+                for tx in data['txs']:
+                    for output in tx['out']:
+                        if 'addr' in output:
+                            transaction_data = {
+                                'sending_wallet': address,
+                                'receiving_wallet': output['addr'],
+                                'transaction_amount': output['value'] / 1e8,  # Convert to BTC
+                                'coin_type': 'BTC',  # Assuming Bitcoin for this script
+                                'date_sent': datetime.fromtimestamp(tx['time']).strftime('%Y-%m-%d'),
+                                'time_sent': datetime.fromtimestamp(tx['time']).strftime('%H:%M:%S'),
+                                'sending_wallet_source': 'Hacker DB',
+                                'receiving_wallet_source': 'Blockchain.info'
+                            }
+                            hacker_transactions.append(transaction_data)
         else:
             if response.status_code == 429:
                 delay = min(delay * 2, max_delay)
@@ -56,12 +70,7 @@ def main():
     hacker_transactions = get_transactions(hacker_addresses, node)
     
     output_filename = "Transaction_wallet_address.csv"
-    data = []
-    for address, tx_ids in hacker_transactions.items():
-        for tx_id in tx_ids:
-            data.append({'address': address, 'txid': tx_id})
-
-    df = pd.DataFrame(data)
+    df = pd.DataFrame(hacker_transactions)
     df.to_csv(output_filename, index=False)
 
 if __name__ == '__main__':
