@@ -9,8 +9,8 @@ from datetime import datetime
 
 BLOCKCHAIN_API_BASE = 'https://blockchain.info'
 
-REPORTED_HACKER_ADDRESSES_FOLDER = '/home/covert/Desktop/blockchain/Test_DB/DBdata'
-REPORTED_HACKER_TYPE_FOLDER = '/home/covert/Desktop/blockchain/Test_DB/Reportdata'
+REPORTED_HACKER_ADDRESSES_FOLDER = '/home/covert/Desktop/blockchain/hakerData/DBdata'
+REPORTED_HACKER_TYPE_FOLDER = '/home/covert/Desktop/blockchain/hakerData/Reportdata'
 def crawl_add():
     hackers_data = []
 
@@ -35,7 +35,7 @@ def crawl_add():
 
     return hackers_data
 
-def check_repeated_address(transactions, threshold=2):
+def check_repeated_address(transactions, threshold=1):
     address_counts = {}
     for transaction in transactions:
         receiving_wallet = transaction['receiving_wallet']
@@ -65,6 +65,7 @@ def get_transactions(hacker_address, node):
 
     while hacker_addresses_queue:
         current_hacker_address = hacker_addresses_queue.pop(0)
+
         response = requests.get(f'{node}/rawaddr/{current_hacker_address}')
         print(current_hacker_address)
 
@@ -72,6 +73,7 @@ def get_transactions(hacker_address, node):
             print("Connected...")
             data = response.json()
             balance = data.get('final_balance', 0)
+            print(balance)
 
             if 'txs' in data:
                 for tx in data['txs']:
@@ -95,20 +97,17 @@ def get_transactions(hacker_address, node):
                                 'fee': tx['fee'] / 1e8
                             }
                             hacker_transactions.append(transaction_data)
-                            hacker_addresses_queue.append(receiving_wallet)
+                            hacker_addresses_queue.append(transaction_data['receiving_wallet'])
 
-                            print(receiving_wallet)
-                # Check for repeated addresses
                 repeated_address = check_repeated_address(hacker_transactions)
                 if repeated_address:
                     with open(repeated_addresses_filename, 'a') as f:
                         f.write(f"{repeated_address}\n")
+
                     hacker_addresses_queue.append(repeated_address)
-                    next_hacker_address = get_next_hacker_address(hacker_transactions)
-                    if next_hacker_address:
-                        hacker_addresses_queue.append(next_hacker_address)
-                if balance == 0:
-                    break
+
+            if balance == 0 :
+                break
         else:
             if response.status_code == 429:
                 delay = min(delay * 2, max_delay)
