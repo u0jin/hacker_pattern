@@ -62,11 +62,14 @@ def get_transactions(hacker_address, node):
     max_delay = 60
     repeated_addresses_filename = 'repeated_addresses.txt'
     hacker_addresses_queue = [hacker_address]
+    initial_hacker_addresses = {hacker_address}
+    offset = 0
+
 
     while hacker_addresses_queue:
         current_hacker_address = hacker_addresses_queue.pop(0)
 
-        response = requests.get(f'{node}/rawaddr/{current_hacker_address}')
+        response = requests.get(f'{node}/rawaddr/{current_hacker_address}?offset={offset}')
         print(current_hacker_address)
 
         if response.status_code == 200:
@@ -80,24 +83,28 @@ def get_transactions(hacker_address, node):
                     for output in tx['out']:
                         if 'addr' in output:
                             receiving_wallet = output['addr']
-                            transaction_data = {
-                                'tx_hash': tx['hash'],
-                                'sending_wallet': current_hacker_address,
-                                'receiving_wallet': receiving_wallet,
-                                'transaction_amount': output['value'] / 1e8,
-                                'coin_type': 'BTC',
-                                'date_sent': datetime.fromtimestamp(tx['time']).strftime('%Y-%m-%d'),
-                                'time_sent': datetime.fromtimestamp(tx['time']).strftime('%H:%M:%S'),
-                                'sending_wallet_source': 'Hacker DB',
-                                'receiving_wallet_source': 'Blockchain.info',
-                                'input_addresses': [inp['prev_out']['addr'] for inp in tx['inputs'] if 'prev_out' in inp and 'addr' in inp['prev_out']],
-                                'output_addresses': [out['addr'] for out in tx['out'] if 'addr' in out],
-                                'total_input_value': sum([inp['prev_out']['value'] for inp in tx['inputs'] if 'prev_out' in inp and 'value' in inp['prev_out']]) / 1e8,
-                                'total_output_value': sum([out['value'] for out in tx['out'] if 'value' in out]) / 1e8,
-                                'fee': tx['fee'] / 1e8
-                            }
-                            hacker_transactions.append(transaction_data)
-                            hacker_addresses_queue.append(transaction_data['receiving_wallet'])
+                            transaction_amount = output['value'] / 1e8
+                            if transaction_amount > 0:
+                                transaction_data = {
+                                    'tx_hash': tx['hash'],
+                                    'sending_wallet': current_hacker_address,
+                                    'receiving_wallet': receiving_wallet,
+                                    'transaction_amount': transaction_amount,
+                                    'coin_type': 'BTC',
+                                    'date_sent': datetime.fromtimestamp(tx['time']).strftime('%Y-%m-%d'),
+                                    'time_sent': datetime.fromtimestamp(tx['time']).strftime('%H:%M:%S'),
+                                    'sending_wallet_source': 'Hacker DB',
+                                    'receiving_wallet_source': 'Blockchain.info',
+                                    'input_addresses': [inp['prev_out']['addr'] for inp in tx['inputs'] if 'prev_out' in inp and 'addr' in inp['prev_out']],
+                                    'output_addresses': [out['addr'] for out in tx['out'] if 'addr' in out],
+                                    'total_input_value': sum([inp['prev_out']['value'] for inp in tx['inputs'] if 'prev_out' in inp and 'value' in inp['prev_out']]) / 1e8,
+                                    'total_output_value': sum([out['value'] for out in tx['out'] if 'value' in out]) / 1e8,
+                                    'fee': tx['fee'] / 1e8
+                                }
+                                hacker_transactions.append(transaction_data)
+                                if balance > 0 and receiving_wallet not in initial_hacker_addresses:
+                                    hacker_addresses_queue.append(receiving_wallet)
+                                    initial_hacker_addresses.add(receiving_wallet)
 
                 repeated_address = check_repeated_address(hacker_transactions)
                 if repeated_address:
@@ -105,17 +112,20 @@ def get_transactions(hacker_address, node):
                         f.write(f"{repeated_address}\n")
 
                     hacker_addresses_queue.append(repeated_address)
+                offset += 50
+            else:
+                break 
 
-            if balance == 0 :
-                break
         else:
             if response.status_code == 429:
                 delay = min(delay * 2, max_delay)
                 time.sleep(delay)
-
+                
+        offset = 0 
         time.sleep(delay + random.uniform(0, 3))
 
     return hacker_transactions
+
 
 
 
