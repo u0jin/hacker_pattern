@@ -6,34 +6,27 @@ import os
 import time
 import random
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
 
 BLOCKCHAIN_API_BASE = 'https://blockchain.info'
 
 REPORTED_HACKER_ADDRESSES_FOLDER = '/home/covert/Desktop/blockchain/hakerData/DBdata'
 REPORTED_HACKER_TYPE_FOLDER = '/home/covert/Desktop/blockchain/hakerData/Reportdata'
-def crawl_add():
+
+def load_hackers_data(file_path):
     hackers_data = []
 
-    if not os.path.exists(REPORTED_HACKER_ADDRESSES_FOLDER) or not os.path.exists(REPORTED_HACKER_TYPE_FOLDER):
-        print("Required directories not found.")
+    if not os.path.exists(file_path):
+        print("File not found.")
         return hackers_data
 
-    for file_name in os.listdir(REPORTED_HACKER_ADDRESSES_FOLDER):
-        address_file_path = os.path.join(REPORTED_HACKER_ADDRESSES_FOLDER, file_name)
-        type_file_name = file_name.replace("DB", "report")
-        type_file_path = os.path.join(REPORTED_HACKER_TYPE_FOLDER, type_file_name)
-
-        if file_name.endswith('.csv') and os.path.exists(type_file_path):
-            address_forder = pd.read_csv(address_file_path)
-            type_forder = pd.read_csv(type_file_path)
-
-            if not address_forder.empty and not type_forder.empty:
-                hacker_address = re.sub(r'\s*View address on blockchain.info.*$', '', address_forder.iloc[0, 2].strip())
-                report_type = type_forder.iloc[0, 2]
-
-                hackers_data.append({'hacker_address': hacker_address, 'report_type': report_type})
+    with open(file_path, 'r') as file:
+        for line in file.readlines():
+            hacker_address, report_type = line.strip().split(',')
+            hackers_data.append({'hacker_address': hacker_address, 'report_type': report_type})
 
     return hackers_data
+
 
 def check_repeated_address(transactions, threshold=1):
     address_counts = {}
@@ -49,14 +42,15 @@ def check_repeated_address(transactions, threshold=1):
             return address
 
     return None
+def write_transaction_to_file(transaction_data, output_filename):
+    if not os.path.exists(output_filename):
+        with open(output_filename, 'w') as f:
+            f.write(','.join(transaction_data.keys()) + '\n')
 
-def get_next_hacker_address(transactions):
-    if transactions:
-        last_transaction = transactions[-1]
-        return last_transaction['receiving_wallet']
-    return None
+    with open(output_filename, 'a') as f:
+        f.write(','.join(str(value) for value in transaction_data.values()) + '\n')
 
-def get_transactions(hacker_address, node):
+def get_transactions(hacker_address, node, output_filename):
     hacker_transactions = []
     delay = 30
     max_delay = 60
@@ -75,8 +69,6 @@ def get_transactions(hacker_address, node):
         if response.status_code == 200:
             print("Connected...")
             data = response.json()
-            balance = data.get('final_balance', 0)
-            print(balance)
 
             if 'txs' in data:
                 for tx in data['txs']:
@@ -84,8 +76,8 @@ def get_transactions(hacker_address, node):
                         if 'addr' in output:
                             receiving_wallet = output['addr']
                             transaction_amount = output['value'] / 1e8
-                            if transaction_amount > 0:
-                                transaction_data = {
+                            
+                            transaction_data = {
                                     'tx_hash': tx['hash'],
                                     'sending_wallet': current_hacker_address,
                                     'receiving_wallet': receiving_wallet,
@@ -101,10 +93,15 @@ def get_transactions(hacker_address, node):
                                     'total_output_value': sum([out['value'] for out in tx['out'] if 'value' in out]) / 1e8,
                                     'fee': tx['fee'] / 1e8
                                 }
-                                hacker_transactions.append(transaction_data)
-                                if balance > 0 and receiving_wallet not in initial_hacker_addresses:
-                                    hacker_addresses_queue.append(receiving_wallet)
-                                    initial_hacker_addresses.add(receiving_wallet)
+                            hacker_transactions.append(transaction_data)
+                            write_transaction_to_file(transaction_data, output_filename)  
+                            print(transaction_amount)
+                            if transaction_amount == 0:
+                                break
+
+                            if transaction_amount > 0 and receiving_wallet not in initial_hacker_addresses:
+                                hacker_addresses_queue.append(receiving_wallet)
+                                initial_hacker_addresses.add(receiving_wallet)
 
                 repeated_address = check_repeated_address(hacker_transactions)
                 if repeated_address:
@@ -120,28 +117,33 @@ def get_transactions(hacker_address, node):
             if response.status_code == 429:
                 delay = min(delay * 2, max_delay)
                 time.sleep(delay)
-                
+
         offset = 0 
         time.sleep(delay + random.uniform(0, 3))
 
     return hacker_transactions
 
+def get_next_hacker_address(transactions):
+    if transactions:
+        last_transaction = transactions[-1]
+        return last_transaction['receiving_wallet']
+    return None
 
-
+def process_hacker_data(hacker_data, node, session):
+    hacker_address = hacker_data['hacker_address']
+    report_type = hacker_data['report_type']
+    output_filename = f"{report_type}.Transaction_{hacker_address}.csv"
+    hacker_transactions = get_transactions(hacker_address, node, output_filename, session)
 
 def main():
-    hackers_data = crawl_add()
+    DATA_FILE_PATH = '/home/covert/Desktop/blockchain/hacker_addresses.csv'
+    hackers_data = load_hackers_data(DATA_FILE_PATH)
     node = BLOCKCHAIN_API_BASE
+    process_hacker_data(hacker_data, node)
 
-    for hacker_data in hackers_data:
-        hacker_address = hacker_data['hacker_address']
-        report_type = hacker_data['report_type']
-        hacker_transactions = get_transactions(hacker_address, node)
-
-        output_filename = f"{report_type}.Transaction_{hacker_address}.csv"
-        df = pd.DataFrame(hacker_transactions)
-        df.to_csv(output_filename, index=False)
-
+    with ThreadPoolExecutor() as executor:
+        for hacker_data in hackers_data:
+            executor.submit(process_hacker_data, hacker_data, node)
 
 if __name__ == '__main__':
     main()
