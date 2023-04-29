@@ -10,8 +10,9 @@ from concurrent.futures import ThreadPoolExecutor
 
 BLOCKCHAIN_API_BASE = 'https://blockchain.info'
 
-REPORTED_HACKER_ADDRESSES_FOLDER = '/home/covert/Desktop/blockchain/hakerData/DBdata'
-REPORTED_HACKER_TYPE_FOLDER = '/home/covert/Desktop/blockchain/hakerData/Reportdata'
+REPORTED_HACKER_ADDRESSES_FOLDER = '/Users/ujin/Desktop/Blockchain/hackerData/DBdata'
+REPORTED_HACKER_TYPE_FOLDER = '/Users/ujin/Desktop/Blockchain/hackerData/Reportdata'
+DATA_FILE_PATH = 'hacker_data.csv'
 
 def load_hackers_data(file_path):
     hackers_data = []
@@ -50,7 +51,7 @@ def write_transaction_to_file(transaction_data, output_filename):
     with open(output_filename, 'a') as f:
         f.write(','.join(str(value) for value in transaction_data.values()) + '\n')
 
-def get_transactions(hacker_address, node, output_filename):
+def get_transactions(hacker_address, report_type):
     hacker_transactions = []
     delay = 30
     max_delay = 60
@@ -58,17 +59,20 @@ def get_transactions(hacker_address, node, output_filename):
     hacker_addresses_queue = [hacker_address]
     initial_hacker_addresses = {hacker_address}
     offset = 0
+    node = BLOCKCHAIN_API_BASE
+    output_filename = f"{report_type}.Transaction_{hacker_address}.csv"
+    hacker_addresses_queue = [hacker_address]
+    processed_addresses = set()
 
 
     while hacker_addresses_queue:
         current_hacker_address = hacker_addresses_queue.pop(0)
-
         response = requests.get(f'{node}/rawaddr/{current_hacker_address}?offset={offset}')
-        print(current_hacker_address)
 
         if response.status_code == 200:
             print("Connected...")
             data = response.json()
+            print("AD:",current_hacker_address)
 
             if 'txs' in data:
                 for tx in data['txs']:
@@ -94,14 +98,16 @@ def get_transactions(hacker_address, node, output_filename):
                                     'fee': tx['fee'] / 1e8
                                 }
                             hacker_transactions.append(transaction_data)
-                            write_transaction_to_file(transaction_data, output_filename)  
+                            write_transaction_to_file(transaction_data, output_filename)
+                            if receiving_wallet not in processed_addresses:
+                                hacker_addresses_queue.append(receiving_wallet)
+                                processed_addresses.add(receiving_wallet)
+                            else :
+                                break  
                             print(transaction_amount)
                             if transaction_amount == 0:
                                 break
 
-                            if transaction_amount > 0 and receiving_wallet not in initial_hacker_addresses:
-                                hacker_addresses_queue.append(receiving_wallet)
-                                initial_hacker_addresses.add(receiving_wallet)
 
                 repeated_address = check_repeated_address(hacker_transactions)
                 if repeated_address:
@@ -129,21 +135,18 @@ def get_next_hacker_address(transactions):
         return last_transaction['receiving_wallet']
     return None
 
-def process_hacker_data(hacker_data, node, session):
+def process_hacker_data(hacker_data, node):
     hacker_address = hacker_data['hacker_address']
     report_type = hacker_data['report_type']
     output_filename = f"{report_type}.Transaction_{hacker_address}.csv"
-    hacker_transactions = get_transactions(hacker_address, node, output_filename, session)
+    hacker_transactions = get_transactions(hacker_address, node, output_filename)
 
 def main():
-    DATA_FILE_PATH = '/home/covert/Desktop/blockchain/hacker_addresses.csv'
+    DATA_FILE_PATH = '/Users/ujin/Desktop/Blockchain/hacker_data.csv'
     hackers_data = load_hackers_data(DATA_FILE_PATH)
-    node = BLOCKCHAIN_API_BASE
-    process_hacker_data(hacker_data, node)
+    for hacker_data in hackers_data:
+        get_transactions(hacker_data['hacker_address'], hacker_data['report_type'])
 
-    with ThreadPoolExecutor() as executor:
-        for hacker_data in hackers_data:
-            executor.submit(process_hacker_data, hacker_data, node)
 
 if __name__ == '__main__':
     main()
