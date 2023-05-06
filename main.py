@@ -7,12 +7,14 @@ import time
 import random
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
+import sys
+from requests.exceptions import ChunkedEncodingError
 
 BLOCKCHAIN_API_BASE = 'https://blockchain.info'
 
 REPORTED_HACKER_ADDRESSES_FOLDER = '/Users/ujin/Desktop/Blockchain/hackerData/DBdata'
 REPORTED_HACKER_TYPE_FOLDER = '/Users/ujin/Desktop/Blockchain/hackerData/Reportdata'
-DATA_FILE_PATH = 'hacker_data.csv'
+DATA_FILE_PATH = '/Users/yujin/Desktop/Blockchain/hacker_data.csv'
 
 def load_hackers_data(file_path):
     hackers_data = []
@@ -67,7 +69,17 @@ def get_transactions(hacker_address, report_type):
 
     while hacker_addresses_queue:
         current_hacker_address = hacker_addresses_queue.pop(0)
-        response = requests.get(f'{node}/rawaddr/{current_hacker_address}?offset={offset}')
+        retry_count = 3  
+        while retry_count > 0:
+            try:
+                response = requests.get(f'{node}/rawaddr/{current_hacker_address}?offset={offset}')
+                break
+            except ChunkedEncodingError as e:
+                print(f"ChunkedEncodingError occurred: {e}, Retrying... {retry_count} attempts left", file=sys.stderr)
+                retry_count -= 1
+                if retry_count <= 0:
+                    print("Giving up after 3 retries.", file=sys.stderr)
+                    continue
 
         if response.status_code == 200:
             print("Connected...")
@@ -138,11 +150,15 @@ def get_next_hacker_address(transactions):
 def process_hacker_data(hacker_data, node):
     hacker_address = hacker_data['hacker_address']
     report_type = hacker_data['report_type']
+    
+    receiving_wallet = hacker_transactions['receiving_wallet']
+
     output_filename = f"{report_type}.Transaction_{hacker_address}.csv"
     hacker_transactions = get_transactions(hacker_address, node, output_filename)
+    output_filename = f"{report_type}.Transaction_{hacker_address}_trace{receiving_wallet}.csv"
+
 
 def main():
-    DATA_FILE_PATH = '/Users/ujin/Desktop/Blockchain/hacker_data.csv'
     hackers_data = load_hackers_data(DATA_FILE_PATH)
     for hacker_data in hackers_data:
         get_transactions(hacker_data['hacker_address'], hacker_data['report_type'])
